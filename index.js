@@ -1,65 +1,68 @@
 const express = require("express");
-const { createServer } = require("http");
+const http = require("http");
 const { Server } = require("socket.io");
 
-const app = express(); // Initialize Express
-const server = createServer(app); // Create HTTP server
+const app = express();
+const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
     origin: "*",
+    methods: ["GET", "POST"],
   },
 });
 
-const userSocketMap = {}; // Map user IDs to their socket IDs
+const users = {};
 
 io.on("connection", (socket) => {
-  console.log("New connection:", socket.id);
+  console.log("New client connected:", socket.id);
 
   socket.on("register", (userId) => {
-    userSocketMap[userId] = socket.id;
-    console.log(`User registered: ${userId} -> ${socket.id}`);
+    users[userId] = socket.id;
+    console.log(`User registered: ${userId} with socket ID: ${socket.id}`);
   });
 
   socket.on("offer", ({ offer, target, sender }) => {
-    const targetSocketId = userSocketMap[target];
-    console.log("Sending offer to:", target);
-
+    const targetSocketId = users[target];
     if (targetSocketId) {
       io.to(targetSocketId).emit("offer", { offer, sender });
+      console.log(`Offer sent from ${sender} to ${target}`);
     } else {
-      socket.emit("error", "Target user not found or offline.");
+      console.error("Target user not found:", target);
     }
   });
 
   socket.on("answer", ({ answer, callerId }) => {
-    const callerSocketId = userSocketMap[callerId];
-    console.log("Sending answer to:", callerId);
+    const callerSocketId = users[callerId];
     if (callerSocketId) {
       io.to(callerSocketId).emit("answer", { answer });
+      console.log(`Answer sent to ${callerId}`);
+    } else {
+      console.error("Caller user not found:", callerId);
+    }
+  });
+
+  socket.on("ice-candidate", ({ target, candidate }) => {
+    const targetSocketId = users[target];
+    if (targetSocketId) {
+      io.to(targetSocketId).emit("ice-candidate", { candidate });
+      console.log("ICE candidate sent");
+    } else {
+      console.error("Target user not found for ICE candidate:", target);
     }
   });
 
   socket.on("disconnect", () => {
-    console.log("Disconnected:", socket.id);
-    for (const [userId, id] of Object.entries(userSocketMap)) {
-      if (id === socket.id) {
-        delete userSocketMap[userId];
-        console.log(`User unregistered: ${userId}`);
+    for (const [userId, socketId] of Object.entries(users)) {
+      if (socketId === socket.id) {
+        delete users[userId];
+        console.log(`User ${userId} disconnected`);
         break;
       }
     }
   });
 });
 
-// Serve a test route to confirm the server is running
-app.get("/", (req, res) => {
-  res.send("WebSocket server is running.");
-});
-
-// Use dynamic port for deployment
-const PORT = process.env.PORT || 5000;
-
-// Start the server
+const PORT = 3000;
 server.listen(PORT, () => {
-  console.log(`Server listening on port ${PORT}`);
+  console.log(`Server running on port ${PORT}`);
 });
